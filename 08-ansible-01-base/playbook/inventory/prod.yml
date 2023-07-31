@@ -1,0 +1,17 @@
+---
+  el:
+    hosts:
+      centos79:
+        ansible_connection: docker
+  deb:
+    hosts:
+      ubuntu2204:
+        ansible_connection: docker
+  local:
+    hosts:
+      localhost:
+        ansible_connection: ansible.builtin.local
+  fedora:
+    hosts:
+      fedora33:
+        ansible_connection: community.docker.docker
