@@ -1,0 +1,121 @@
+---
+- name: Install Clickhouse
+  hosts: clickhouse
+  handlers:
+    - name: Start clickhouse service
+      become: true
+      ansible.builtin.service:
+        name: clickhouse-server
+        state: restarted
+  tasks:
+    - name: "Download clickhouse distrib block"
+      block:
+        - name: Get clickhouse distrib
+          ansible.builtin.get_url:
+            url: "https://packages.clickhouse.com/rpm/stable/{{ item }}-{{ clickhouse_version }}.noarch.rpm"
+            dest: "./{{ item }}-{{ clickhouse_version }}.rpm"
+            mode: '0644'
+          with_items: "{{ clickhouse_packages }}"
+      rescue:
+        - name: Get clickhouse distrib
+          ansible.builtin.get_url:
+            url: "https://packages.clickhouse.com/rpm/stable/clickhouse-common-static-{{ clickhouse_version }}.x86_64.rpm"
+            dest: "./clickhouse-common-static-{{ clickhouse_version }}.rpm"
+            mode: '0644'
+    - name: Install clickhouse packages
+      become: true
+      ansible.builtin.yum:
+        name:
+          - clickhouse-common-static-{{ clickhouse_version }}.rpm
+          - clickhouse-client-{{ clickhouse_version }}.rpm
+          - clickhouse-server-{{ clickhouse_version }}.rpm
+        disable_gpg_check: true
+      notify: Start clickhouse service
+    - name: Flush handlers
+      ansible.builtin.meta: flush_handlers
+    - name: Create database
+      ansible.builtin.command: "clickhouse-client -q 'create database logs;'"
+      register: create_db
+      failed_when: create_db.rc != 0 and create_db.rc != 82
+      changed_when: create_db.rc == 0
+
+# =============================================
+#   INSTALL VECTOR
+# =============================================
+
+- name: "Install Vector"
+  hosts: clickhouse
+
+  tasks:
+    - name: "Create the vector user"
+      ansible.builtin.user:
+        create_home: false
+        name: "{{ vector_user }}"
+        shell: "/bin/false"
+        system: true
+        state: "present"
+
+    - name: "Create a tmp directory"
+      ansible.builtin.file:
+        path: "{{ tmp_directory_path }}"
+        state: "directory"
+        mode: '0755'
+
+    - name: "Get a vector distrib"
+      ansible.builtin.get_url:
+        url: "https://packages.timber.io/vector/{{ vector_version }}/vector-{{ vector_version }}-x86_64-unknown-linux-gnu.tar.gz"
+        dest: "{{ tmp_directory_path }}/vector-{{ vector_version }}-x86_64-unknown-linux-gnu.tar.gz"
+        mode: '0644'
+
+    - name: "Unarchive a vector distrib file"
+      ansible.builtin.unarchive:
+        src: "{{ tmp_directory_path }}/vector-{{ vector_version }}-x86_64-unknown-linux-gnu.tar.gz"
+        dest: "{{ tmp_directory_path }}"
+        remote_src: true
+
+    - name: "Create needed vector directory"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: "directory"
+        mode: '0755'
+        owner: "{{ vector_user }}"
+        group: "{{ vector_user }}"
+      loop:
+        - "/etc/vector"
+        - "/var/lib/vector"
+
+    - name: "Deploy vector configuration and service"
+      ansible.builtin.template:
+        src: "{{ item.src_path }}"
+        dest: "{{ item.dest_path }}"
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - {src_path: "vector.default.j2", dest_path: "/etc/default/vector", owner: "root", group: "root", mode: '0644'}
+        - {src_path: "vector.service.j2", dest_path: "/lib/systemd/system/vector.service", owner: "root", group: "root", mode: '0644'}
+        - {src_path: "vector.toml.j2", dest_path: "/etc/vector/vector.toml", owner: "{{ vector_user }}", group: "{{ vector_user }}", mode: '0644'}
+
+    - name: "Copy a vector bin file"
+      ansible.builtin.copy:
+        src: "{{ tmp_directory_path }}/vector-x86_64-unknown-linux-gnu/bin/vector"
+        dest: "/usr/bin/vector"
+        owner: "{{ vector_user }}"
+        group: "{{ vector_user }}"
+        mode: '0755'
+        remote_src: true
+
+    - name: "Restart service vector and also exec daemon-reload to pick up config changes"
+      ansible.builtin.systemd:
+        name: "vector.service"
+        state: "restarted"
+        enabled: true
+        daemon_reload: true
+
+    - name: "Remove tmp directory"
+      ansible.builtin.file:
+        path: "{{ tmp_directory_path }}"
+        state: "absent"
+      tags:
+        - never
+        - prod
