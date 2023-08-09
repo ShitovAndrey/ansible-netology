@@ -4,7 +4,3 @@ clickhouse_packages:
   - clickhouse-client
   - clickhouse-server
   - clickhouse-common-static
-
-vector_user: "vector"
-tmp_directory_path: "/tmp/vector_distrib"
-vector_version: "0.31.0"

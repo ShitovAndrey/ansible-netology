@@ -44,7 +44,7 @@
 # =============================================
 
 - name: "Install Vector"
-  hosts: clickhouse
+  hosts: vector
 
   tasks:
     - name: "Create the vector user"
@@ -111,6 +111,90 @@
         state: "restarted"
         enabled: true
         daemon_reload: true
+
+    - name: "Remove tmp directory"
+      ansible.builtin.file:
+        path: "{{ tmp_directory_path }}"
+        state: "absent"
+      tags:
+        - never
+        - prod
+
+# =============================================
+#   INSTALL LIGHTHOUSE
+# =============================================
+
+- name: "Install Lighthouse"
+  hosts: lighthouse
+
+  tasks:
+    - name: "Create a tmp directory"
+      ansible.builtin.file:
+        path: "{{ tmp_directory_path }}"
+        state: "directory"
+        mode: '0755'
+
+    - name: "Get a Lighthouse distrib"
+      ansible.builtin.get_url:
+        url: "https://github.com/VKCOM/lighthouse/archive/refs/heads/master.zip"
+        dest: "{{ tmp_directory_path }}/lighthouse-master.zip"
+        mode: '0644'
+
+    - name: "For RedHat block"
+      block:
+        - name: "Enable nginx dnf module"
+          ansible.builtin.yum:
+            name: '@nginx:1.22/common'
+            state: present
+
+        - name: "Install webserver nginx"
+          ansible.builtin.yum:
+            name: "{{ packages }}"
+          vars:
+            packages:
+              - nginx
+              - unzip
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: "Unarchive a Lighthouse distrib file"
+      ansible.builtin.unarchive:
+        src: "{{ tmp_directory_path }}/lighthouse-master.zip"
+        dest: "{{ tmp_directory_path }}"
+        remote_src: true
+
+    - name: "Create needed lighthouse directory"
+      ansible.builtin.file:
+        path: "{{ lighthouse_content_dir }}"
+        state: "directory"
+        mode: '0755'
+        owner: "root"
+        group: "root"
+
+    - name: "Copy lighthouse bin file"
+      ansible.builtin.copy:
+        src: "{{ tmp_directory_path }}/lighthouse-master/"
+        dest: "{{ lighthouse_content_dir }}"
+        owner: "root"
+        group: "root"
+        mode: '0644'
+        directory_mode: '0755'
+        remote_src: true
+
+    - name: "Deploy nginx configuration file"
+      ansible.builtin.template:
+        src: "nginx.conf.j2"
+        dest: "/etc/nginx/nginx.conf"
+        owner: "root"
+        group: "root"
+        mode: '0644'
+      vars:
+        j2_nginx_root_dir: "{{ lighthouse_content_dir }}"
+
+    - name: "Restart and enabled nginx service"
+      ansible.builtin.systemd:
+        name: "nginx.service"
+        state: "restarted"
+        enabled: true
 
     - name: "Remove tmp directory"
       ansible.builtin.file:

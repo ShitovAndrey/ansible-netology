@@ -2,5 +2,15 @@
 clickhouse:
   hosts:
     clickhouse-01:
-      ansible_host: 192.168.1.50
-      ansible_user: root
+      ansible_host: 158.160.113.59
+      ansible_user: cloud-user
+vector:
+  hosts:
+    vector-01:
+      ansible_host: 158.160.107.191
+      ansible_user: cloud-user
+lighthouse:
+  hosts:
+    lighthouse-01:
+      ansible_host: 158.160.119.98
+      ansible_user: cloud-user
